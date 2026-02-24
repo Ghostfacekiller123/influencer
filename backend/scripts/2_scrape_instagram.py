@@ -60,7 +60,7 @@ def scrape_influencer(loader, influencer: dict) -> list[dict]:
             videos.append(
                 {
                     "shortcode": post.shortcode,
-                    "influencer": influencer["name"],
+                    "influencer": sarahhany["name"],
                     "platform": "instagram",
                     "url": f"https://www.instagram.com/p/{post.shortcode}/",
                     "caption": post.caption or "",
