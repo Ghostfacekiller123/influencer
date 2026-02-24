@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Node
+node_modules/
+.next/
+out/
+.DS_Store
+
+# Data
+data/
+*.mp4
+*.json
+!influencers.json
+!package.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
