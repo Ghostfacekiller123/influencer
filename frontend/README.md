@@ -1,6 +1,6 @@
 # Frontend — Influencer Product Search Platform
 
-Next.js 14 frontend with TypeScript and Tailwind CSS.
+Next.js 15 frontend with TypeScript and Tailwind CSS.
 
 ## Prerequisites
 
