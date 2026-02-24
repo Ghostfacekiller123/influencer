@@ -25,7 +25,7 @@ export default function SearchBar({ onSearch, initialQuery = '' }: SearchBarProp
         type="search"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Ask anything... 'What does she use for eyes?' 💄"
+        placeholder="Ask anything... 'What does she use for her eyes?' 💄"
         aria-label="Search products"
         className="flex-1 px-6 py-4 text-gray-800 text-lg outline-none bg-white placeholder-gray-400"
       />
@@ -34,7 +34,7 @@ export default function SearchBar({ onSearch, initialQuery = '' }: SearchBarProp
         className="bg-pink-600 hover:bg-pink-700 active:bg-pink-800 text-white px-8 py-4 font-semibold text-lg transition-colors"
         aria-label="Submit search"
       >
-        Ask AI ✨
+        Ask AI
       </button>
     </form>
   )

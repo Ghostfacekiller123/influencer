@@ -1,8 +1,8 @@
 export interface BuyLink {
   id?: string
-  store: string
-  price?: number | null
-  currency?: string
+  store_name: string
+  price?: string | null
+  currency?: string | null
   url: string
   in_stock?: boolean
 }
@@ -10,6 +10,7 @@ export interface BuyLink {
 export interface Product {
   id?: string
   influencer_name: string
+  influencer_profile_pic?: string  // ← ADD THIS
   product_name: string
   brand?: string
   category?: string
@@ -31,9 +32,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 const STORE_ICONS: Record<string, string> = {
-  'Amazon.eg': '🛒',
+  'Amazon Egypt': '🛒',
   'Noon Egypt': '🌙',
   'Jumia Egypt': '📦',
+  'Google Shopping': '🔍',
 }
 
 interface ProductCardProps {
@@ -48,7 +50,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const platformIcon = product.platform === 'instagram' ? '📸' : '🎵'
 
   return (
-    <div className="product-card bg-white rounded-2xl shadow-md p-5 flex flex-col gap-3 border border-gray-100">
+    <div className="product-card bg-white rounded-2xl shadow-md p-5 flex flex-col gap-3 border border-gray-100 hover:shadow-xl transition-shadow">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -66,10 +68,23 @@ export default function ProductCard({ product }: ProductCardProps) {
         )}
       </div>
 
-      {/* Influencer */}
-      <p className="text-sm text-gray-500">
-        <span className="font-medium text-gray-700">By:</span> {product.influencer_name}
-      </p>
+      {/* Influencer WITH PROFILE PIC */}
+      <div className="flex items-center gap-2">
+        {product.influencer_profile_pic ? (
+          <img
+            src={product.influencer_profile_pic}
+            alt={product.influencer_name}
+            className="w-8 h-8 rounded-full border-2 border-purple-300 object-cover"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-xs">
+            {product.influencer_name?.charAt(0)?.toUpperCase() || '?'}
+          </div>
+        )}
+        <p className="text-sm text-gray-500">
+          <span className="font-medium text-gray-700">By:</span> {product.influencer_name}
+        </p>
+      </div>
 
       {/* Quote */}
       {product.quote && (
@@ -79,7 +94,7 @@ export default function ProductCard({ product }: ProductCardProps) {
       )}
 
       {/* Video link */}
-      {product.video_url && (
+      {product.video_url && product.video_url.trim() !== '' && (
         <a
           href={product.video_url}
           target="_blank"
@@ -94,18 +109,18 @@ export default function ProductCard({ product }: ProductCardProps) {
       {product.buy_links && product.buy_links.length > 0 && (
         <div className="border-t border-gray-100 pt-3 mt-1">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Buy in Egypt
+            Where to Buy:
           </p>
           <div className="flex flex-col gap-2">
             {product.buy_links.map((link, i) => (
               <div key={link.id ?? i} className="flex items-center justify-between gap-2">
                 <span className="text-sm text-gray-700 font-medium">
-                  {STORE_ICONS[link.store] ?? '🛍️'} {link.store}
+                  {STORE_ICONS[link.store_name] ?? '🛍️'} {link.store_name}
                 </span>
                 <div className="flex items-center gap-2">
                   {link.price && (
                     <span className="text-sm font-bold text-gray-900">
-                      {link.price.toLocaleString()} {link.currency ?? 'EGP'}
+                      {link.price} {link.currency ?? 'EGP'}
                     </span>
                   )}
                   {link.in_stock === false ? (
@@ -115,7 +130,7 @@ export default function ProductCard({ product }: ProductCardProps) {
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all"
+                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md"
                     >
                       Buy
                     </a>
@@ -124,6 +139,13 @@ export default function ProductCard({ product }: ProductCardProps) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* No buy links */}
+      {(!product.buy_links || product.buy_links.length === 0) && (
+        <div className="border-t border-gray-100 pt-3 mt-1">
+          <p className="text-xs text-gray-400 text-center">No buy links available yet</p>
         </div>
       )}
     </div>

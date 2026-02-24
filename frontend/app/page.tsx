@@ -21,10 +21,7 @@ export default function HomePage() {
   const [aiMode, setAiMode] = useState(true)
   const [aiAnswer, setAiAnswer] = useState('')
 
-  // Load all products on mount
-  useEffect(() => {
-    loadAllProducts()
-  }, [])
+
 
   const loadAllProducts = async () => {
     setLoading(true)
