@@ -111,40 +111,73 @@ export default function ProductCard({ product }: ProductCardProps) {
       )}
 
       {/* Buy links */}
-      {product.buy_links && product.buy_links.length > 0 && (
-        <div className="border-t border-gray-100 pt-3 mt-1">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Where to Buy:
-          </p>
-          <div className="flex flex-col gap-2">
-            {product.buy_links.map((link, i) => (
-              <div key={link.id ?? i} className="flex items-center justify-between gap-2">
-                <span className="text-sm text-gray-700 font-medium">
-{getStoreIcon(link.store_name)} {link.store_name}                </span>
-                <div className="flex items-center gap-2">
-                  {link.price && (
-                    <span className="text-sm font-bold text-gray-900">
-                      {link.price} {link.currency ?? 'EGP'}
-                    </span>
-                  )}
-                  {link.in_stock === false ? (
-                    <span className="text-xs text-red-500 font-medium">Out of stock</span>
-                  ) : (
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md"
-                    >
-                      Buy
-                    </a>
-                  )}
+      {product.buy_links && product.buy_links.length > 0 && (() => {
+        const mentionLinks = product.buy_links.filter(l => l.store_name?.startsWith('@'))
+        const shopLinks = product.buy_links.filter(l => !l.store_name?.startsWith('@'))
+        return (
+          <div className="border-t border-gray-100 pt-3 mt-1 flex flex-col gap-3">
+            {mentionLinks.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Brand Links:
+                </p>
+                <div className="flex flex-col gap-2">
+                  {mentionLinks.map((link, i) => (
+                    <div key={link.id ?? `m-${i}`} className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-gray-700 font-medium">
+                        📍 {link.store_name}
+                      </span>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-gradient-to-r from-pink-400 to-rose-500 hover:from-pink-500 hover:to-rose-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md"
+                      >
+                        View
+                      </a>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
+            {shopLinks.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Where to Buy:
+                </p>
+                <div className="flex flex-col gap-2">
+                  {shopLinks.map((link, i) => (
+                    <div key={link.id ?? `s-${i}`} className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-gray-700 font-medium">
+                        {getStoreIcon(link.store_name)} {link.store_name}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {link.price && (
+                          <span className="text-sm font-bold text-gray-900">
+                            {link.price} {link.currency ?? 'EGP'}
+                          </span>
+                        )}
+                        {link.in_stock === false ? (
+                          <span className="text-xs text-red-500 font-medium">Out of stock</span>
+                        ) : (
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md"
+                          >
+                            Buy
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* No buy links */}
       {(!product.buy_links || product.buy_links.length === 0) && (

@@ -32,7 +32,7 @@ CREATE TABLE products (
 CREATE TABLE buy_links (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   product_id UUID REFERENCES products(id) ON DELETE CASCADE,
-  store VARCHAR(100),
+  store_name VARCHAR(100),
   price DECIMAL(10, 2),
   currency VARCHAR(10) DEFAULT 'EGP',
   url TEXT,
