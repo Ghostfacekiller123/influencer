@@ -39,14 +39,48 @@ class Monster:
         run = client.actor("apify/instagram-reel-scraper").call(
             run_input={"username": [handle], "resultsLimit": 20}
         )
-        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
-        print(f"  ✅ Fetched {len(items)} posts")
-        return items
+        dataset_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        print(f"  ✅ Fetched {len(dataset_items)} posts")
+
+        if dataset_items:
+            print(f"  🔍 DEBUG: First item keys: {list(dataset_items[0].keys())}")
+            print(f"  🔍 DEBUG: videoUrl: {dataset_items[0].get('videoUrl')}")
+            print(f"  🔍 DEBUG: displayUrl: {dataset_items[0].get('displayUrl')}")
+
+        posts = []
+        for item in dataset_items:
+            # Extract CDN video URL with priority order
+            video_url = None
+
+            if item.get("videoUrl"):
+                video_url = item["videoUrl"]
+            elif item.get("videoPlayUrl"):
+                video_url = item["videoPlayUrl"]
+            elif item.get("displayUrl"):
+                video_url = item["displayUrl"]
+
+            # Fallback: construct Instagram reel link from shortCode
+            if not video_url:
+                shortcode = item.get("shortCode", "")
+                video_url = f"https://www.instagram.com/reel/{shortcode}/" if shortcode else ""
+
+            post_data = {
+                "caption": item.get("caption", ""),
+                "timestamp": item.get("timestamp", ""),
+                "url": video_url,
+                "likes": item.get("likesCount", 0),
+                "comments": item.get("commentsCount", 0),
+                "shortCode": item.get("shortCode", ""),
+                "ownerProfilePicUrl": item.get("ownerProfilePicUrl", ""),
+            }
+            posts.append(post_data)
+
+        return posts
 
     # ── AI product extraction ──────────────────────────────────────────────────
 
     def extract_products_with_ai(self, posts: list[dict], handle: str) -> list[dict]:
-        """Use Groq AI to extract products from Instagram posts."""
+        """Use Groq AI to extract products from Instagram posts, then validate each one."""
         if not posts:
             return []
 
@@ -107,12 +141,47 @@ Return ONLY JSON array. If no products: []"""
                 raw = raw[json_start:json_end]
 
             products = json.loads(raw)
-            print(f"  🤖 AI extracted {len(products)} products")
-            return products
+            print(f"  🤖 AI extracted {len(products)} products (before validation)")
 
         except Exception as e:
             print(f"  ⚠️ AI extraction failed: {e}")
             return []
+
+        # Validate each product: reject non-products (places, restaurants, reviews)
+        validated_products = []
+        for product in products:
+            validation_prompt = f"""Is this a beauty/lifestyle PRODUCT or just a place/review?
+
+Item: {product.get('product_name')}
+Quote: {product.get('influencer_quote', '')}
+
+Answer with JSON:
+{{"is_product": true, "reason": "why"}}
+
+Examples:
+- "Maybelline lipstick" → {{"is_product": true, "reason": "cosmetic product"}}
+- "Starbucks coffee shop" → {{"is_product": false, "reason": "restaurant/place, not a product"}}
+- "MAC eyeshadow palette" → {{"is_product": true, "reason": "makeup product"}}
+
+Return ONLY JSON, no markdown."""
+            try:
+                val_response = self.groq.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": validation_prompt}],
+                    temperature=0.3,
+                    max_tokens=100,
+                )
+                validation = json.loads(val_response.choices[0].message.content.strip())
+                if validation.get("is_product", False):
+                    validated_products.append(product)
+                else:
+                    print(f"  ⚠️ Rejected: {product.get('product_name')} - {validation.get('reason')}")
+            except Exception:
+                # If validation fails, keep the product to be safe
+                validated_products.append(product)
+
+        print(f"  ✅ {len(validated_products)} products passed validation")
+        return validated_products
 
     # ── Save products with deduplication ──────────────────────────────────────
 

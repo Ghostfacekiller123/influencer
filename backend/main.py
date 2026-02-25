@@ -1129,6 +1129,46 @@ def remove_from_watchlist(handle: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.delete("/admin/products/{product_id}")
+def delete_product_by_id(product_id: int):
+    """Delete a product by integer ID."""
+    try:
+        resp = supabase.table("products").select("*").eq("id", product_id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Product not found")
+        supabase.table("products").delete().eq("id", product_id).execute()
+        return {"message": "Product deleted", "product_id": product_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/admin/products/{product_id}/link")
+def update_product_link(product_id: int, new_link: str):
+    """Update the post URL (video link) for a product."""
+    try:
+        resp = supabase.table("products").select("id").eq("id", product_id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Product not found")
+        supabase.table("products").update({"post_url": new_link}).eq("id", product_id).execute()
+        return {"message": "Link updated", "product_id": product_id, "new_link": new_link}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/admin/products/by-influencer/{handle}")
+def get_products_by_influencer(handle: str):
+    """Get all products from an influencer by handle (partial match)."""
+    try:
+        resp = supabase.table("products").select("*").ilike("influencer_name", f"%{handle}%").execute()
+        return {"products": resp.data or [], "count": len(resp.data or [])}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -3,6 +3,7 @@ Telegram Bot for The Monster - AI-powered influencer product tracker.
 Talks in gangsta/savage Egyptian slang with full attitude.
 """
 
+import json
 import os
 from datetime import datetime, date
 
@@ -126,6 +127,126 @@ Respond naturally with gangsta energy. If asking stats, give numbers with attitu
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Ayy something broke fam 😤 Error: {e}"
+
+
+# ── Intent detection ──────────────────────────────────────────────────────────
+
+def detect_intent(user_message: str) -> dict:
+    """Use AI to detect what the user wants to do."""
+    prompt = f"""Analyze this message and detect the user's intent.
+
+User message: "{user_message}"
+
+Return JSON with intent and parameters:
+
+Possible intents:
+- "parse_influencer" - user wants to scrape an influencer
+- "delete_product" - user wants to delete a product
+- "edit_link" - user wants to change a product link
+- "list_products" - user wants to see products from an influencer
+- "start_monster" - activate monitoring
+- "stop_monster" - pause monitoring
+- "status" - check stats
+- "hunt_influencers" - find top trending influencers
+- "add_to_watchlist" - add influencer to auto-monitoring
+- "chat" - just chatting, no action
+
+Examples:
+"parse sarah.hany" → {{"intent": "parse_influencer", "handle": "sarah.hany", "count": 10}}
+"delete product #23" → {{"intent": "delete_product", "product_id": 23}}
+"show me what sarah has" → {{"intent": "list_products", "handle": "sarah"}}
+"hunt top beauty influencers" → {{"intent": "hunt_influencers", "category": "beauty", "count": 10}}
+"change link for product 15" → {{"intent": "edit_link", "product_id": 15}}
+
+Return ONLY JSON, no markdown.
+"""
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+        return json.loads(response.choices[0].message.content.strip())
+    except Exception:
+        return {"intent": "chat"}
+
+
+# ── Product management helpers ─────────────────────────────────────────────────
+
+def list_products_by_influencer(handle: str) -> str:
+    """List all products from an influencer with IDs."""
+    try:
+        resp = supabase.table("products").select("*").ilike("influencer_name", f"%{handle}%").execute()
+        products = resp.data or []
+
+        if not products:
+            return f"Yo fam, ain't got no products from {handle} yet! 💀"
+
+        msg = f"📦 **Products from {products[0].get('influencer_name', handle)}** ({len(products)} total):\n\n"
+        for p in products[:50]:
+            msg += f"🆔 **ID {p['id']}**: {p['product_name']}\n"
+            if p.get("brand"):
+                msg += f"   Brand: {p['brand']}\n"
+            if p.get("post_url"):
+                msg += f"   Link: {p['post_url'][:60]}...\n"
+            msg += "\n"
+        return msg
+    except Exception as e:
+        return f"Error fetching products: {e}"
+
+
+def delete_product(product_id: int) -> str:
+    """Delete a product by ID."""
+    try:
+        resp = supabase.table("products").select("product_name, influencer_name").eq("id", product_id).execute()
+        if not resp.data:
+            return f"Yo, product #{product_id} don't exist babe! 🤷"
+
+        product = resp.data[0]
+        supabase.table("products").delete().eq("id", product_id).execute()
+        return f"✅ Deleted that shit! Product '{product['product_name']}' from {product['influencer_name']} is GONE! 🗑️🔥"
+    except Exception as e:
+        return f"Error deleting: {e}"
+
+
+def edit_product_link(product_id: int, new_link: str) -> str:
+    """Update product link."""
+    try:
+        resp = supabase.table("products").select("product_name").eq("id", product_id).execute()
+        if not resp.data:
+            return f"Product #{product_id} not found babe!"
+
+        supabase.table("products").update({"post_url": new_link}).eq("id", product_id).execute()
+        return f"✅ Updated link for product #{product_id}! New link saved! 🔗✨"
+    except Exception as e:
+        return f"Error updating: {e}"
+
+
+def hunt_trending_influencers(category: str = "beauty", count: int = 10) -> str:
+    """Search for trending influencers in a category."""
+    prompt = f"""List the top {count} trending {category} influencers on Instagram in Egypt/MENA region in 2024-2026.
+
+Return ONLY a JSON array of handles (without @):
+["handle1", "handle2", "handle3"]
+
+Focus on active influencers with recent content.
+"""
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500,
+        )
+        handles = json.loads(response.choices[0].message.content.strip())
+        msg = f"🔥 **Top {category.title()} Influencers:**\n\n"
+        for i, handle in enumerate(handles[:count], 1):
+            msg += f"{i}. @{handle}\n"
+        msg += f"\n💬 Which one you want me to parse, boss? Tell me the handle and how many reels! 🎯"
+        return msg
+    except Exception as e:
+        return f"Couldn't hunt influencers: {e}"
 
 
 # ── Command handlers ───────────────────────────────────────────────────────────
@@ -369,10 +490,159 @@ async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle natural language messages with gangsta AI."""
-    user_text = update.message.text or ""
-    response = ai_chat(user_text)
-    await update.message.reply_text(response)
+    """Handle all messages with intent detection."""
+    user_message = update.message.text or ""
+
+    # Handle pending link-edit state
+    if context.user_data.get("editing_product"):
+        product_id = context.user_data["editing_product"]
+        new_link = user_message
+        result = edit_product_link(product_id, new_link)
+        await update.message.reply_text(result)
+        context.user_data["editing_product"] = None
+        return
+
+    # Detect intent
+    intent_data = detect_intent(user_message)
+    intent = intent_data.get("intent", "chat")
+
+    if intent == "parse_influencer":
+        handle = intent_data.get("handle", "")
+        count = intent_data.get("count", 10)
+        await update.message.reply_text(
+            f"🔥 Say less boss! Parsing @{handle}, pulling {count} reels... Give me a sec! 💪"
+        )
+        try:
+            from monster import Monster
+            monster = Monster()
+            influencer = {"handle": handle, "platform": "instagram", "total_products_found": 0}
+            result = monster.process_influencer(influencer)
+            try:
+                existing = (
+                    supabase.table("influencer_watchlist")
+                    .select("id")
+                    .eq("handle", handle)
+                    .eq("platform", "instagram")
+                    .execute()
+                )
+                if not existing.data:
+                    supabase.table("influencer_watchlist").insert(
+                        {"handle": handle, "platform": "instagram", "status": "active", "added_by": "telegram"}
+                    ).execute()
+            except Exception:
+                pass
+            if result["products_saved"] > 0:
+                await update.message.reply_text(
+                    f"✅ YOOO we just pulled {result['products_saved']} new products from @{handle}! We eating! 🍽️💰"
+                )
+            else:
+                await update.message.reply_text(
+                    f"👀 Checked @{handle} - found {result['products_found']} products but they all already in the DB fam! No duplicates, we clean! 💯"
+                )
+        except Exception as e:
+            await update.message.reply_text(f"Damn something broke fam 😤 Error: {e}")
+
+    elif intent == "delete_product":
+        product_id = intent_data.get("product_id")
+        if product_id is None:
+            await update.message.reply_text("Yo gimme the product ID fam! Like 'delete product #23' 🎯")
+        else:
+            result = delete_product(int(product_id))
+            await update.message.reply_text(result)
+
+    elif intent == "edit_link":
+        product_id = intent_data.get("product_id")
+        if product_id is None:
+            await update.message.reply_text("Yo gimme the product ID fam! Like 'change link for product 15' 🔗")
+        else:
+            context.user_data["editing_product"] = int(product_id)
+            await update.message.reply_text(
+                f"Aight! Send me the new CDN link for product #{product_id}! 🔗"
+            )
+
+    elif intent == "list_products":
+        handle = intent_data.get("handle", "")
+        if not handle:
+            await update.message.reply_text("Yo gimme a handle fam! Like 'show me sarah's products' 🎯")
+        else:
+            result = list_products_by_influencer(handle)
+            await update.message.reply_text(result, parse_mode="Markdown")
+
+    elif intent == "hunt_influencers":
+        category = intent_data.get("category", "beauty")
+        count = intent_data.get("count", 10)
+        result = hunt_trending_influencers(category, count)
+        await update.message.reply_text(result, parse_mode="Markdown")
+
+    elif intent == "start_monster":
+        try:
+            config_resp = supabase.table("monster_config").select("id").limit(1).execute()
+            if config_resp.data:
+                supabase.table("monster_config").update(
+                    {"is_active": True, "updated_at": datetime.utcnow().isoformat()}
+                ).eq("id", config_resp.data[0]["id"]).execute()
+            else:
+                supabase.table("monster_config").insert(
+                    {"is_active": True, "monitoring_interval": 21600}
+                ).execute()
+            await update.message.reply_text("🔥 MONSTER ACTIVATED! Let's get this bread! 💰💪")
+        except Exception as e:
+            await update.message.reply_text(f"Ayy something went wrong fam 😤: {e}")
+
+    elif intent == "stop_monster":
+        try:
+            config_resp = supabase.table("monster_config").select("id").limit(1).execute()
+            if config_resp.data:
+                supabase.table("monster_config").update(
+                    {"is_active": False, "updated_at": datetime.utcnow().isoformat()}
+                ).eq("id", config_resp.data[0]["id"]).execute()
+            await update.message.reply_text("😴 Monster taking a nap. Wake me up when you ready fam!")
+        except Exception as e:
+            await update.message.reply_text(f"Ayy something went wrong fam 😤: {e}")
+
+    elif intent == "add_to_watchlist":
+        handle = intent_data.get("handle", "")
+        if not handle:
+            await update.message.reply_text("Yo gimme a handle fam! 🎯")
+        else:
+            try:
+                existing = (
+                    supabase.table("influencer_watchlist")
+                    .select("id")
+                    .eq("handle", handle)
+                    .eq("platform", "instagram")
+                    .execute()
+                )
+                if existing.data:
+                    await update.message.reply_text(
+                        f"Ayy @{handle} already in the watchlist fam! We already on that! 💯"
+                    )
+                else:
+                    supabase.table("influencer_watchlist").insert(
+                        {"handle": handle, "platform": "instagram", "status": "active", "added_by": "telegram"}
+                    ).execute()
+                    await update.message.reply_text(
+                        f"✅ YO! @{handle} added to the watchlist boss! We watching her now 24/7! 👑🔥"
+                    )
+            except Exception as e:
+                await update.message.reply_text(f"Ayy error fam 😤: {e}")
+
+    elif intent == "status":
+        stats = get_db_stats()
+        await update.message.reply_text(
+            f"Ayy here's the rundown boss! 🔥\n\n"
+            f"📦 Total Products: {stats['total_products']}\n"
+            f"📈 Added Today: {stats['products_today']}\n"
+            f"👀 Watching: {stats['active_count']} bitches\n"
+            f"🤖 Monster Status: {stats['is_active']}\n"
+            f"👑 Top Bitches: {stats['top_list']}\n\n"
+            f"The grind never stops fam! 💪💯"
+        )
+
+    else:
+        # Regular chat
+        response = ai_chat(user_message)
+        await update.message.reply_text(response)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
