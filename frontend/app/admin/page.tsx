@@ -106,17 +106,45 @@ export default function AdminPage() {
     setProducts(products.filter((_, i) => i !== index));
   };
 
+  const addBuyLink = (productIndex: number) => {
+    const updated = [...products];
+    updated[productIndex].buy_links.push({
+      store_name: "",
+      url: "",
+      currency: "EGP"
+    });
+    setProducts(updated);
+  };
+
+  const removeBuyLink = (productIndex: number, linkIndex: number) => {
+    const updated = [...products];
+    updated[productIndex].buy_links.splice(linkIndex, 1);
+    setProducts(updated);
+  };
+
+  const updateBuyLinkStore = (productIndex: number, linkIndex: number, storeName: string) => {
+    const updated = [...products];
+    updated[productIndex].buy_links[linkIndex].store_name = storeName;
+    setProducts(updated);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 to-purple-50 p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            🔧 Admin Panel
-          </h1>
-          <a href="/" className="text-purple-600 hover:text-purple-800">
-            ← Back to Home
-          </a>
-        </div>
+  <h1 className="text-4xl font-bold text-gray-800 mb-2">
+    🔧 Admin Panel
+  </h1>
+  <div className="flex gap-4">
+    <a href="/" className="text-purple-600 hover:text-purple-800">
+      ← Back to Home
+    </a>
+    <span className="text-gray-300">|</span>
+    <a href="/admin/manage" className="text-purple-600 hover:text-purple-800 font-bold">
+      📦 Manage Existing Products
+    </a>
+  </div>
+</div>
 
         {step === 'input' && (
           <div className="bg-white rounded-2xl shadow-lg p-8">
@@ -203,6 +231,7 @@ export default function AdminPage() {
                     </h3>
                     <button
                       onClick={() => removeProduct(pIdx)}
+                      type="button"
                       className="text-red-500 hover:text-red-700 font-bold"
                     >
                       ✕
@@ -230,6 +259,14 @@ export default function AdminPage() {
                         <option value="skincare">Skincare</option>
                         <option value="haircare">Haircare</option>
                         <option value="fragrance">Fragrance</option>
+                        <option value="fashion">Fashion</option>
+                        <option value="shoes">Shoes</option>
+                        <option value="bags">Bags & Accessories</option>
+                        <option value="jewelry">Jewelry</option>
+                        <option value="tech">Tech & Gadgets</option>
+                        <option value="food">Food & Drinks</option>
+                        <option value="lifestyle">Lifestyle</option>
+                        <option value="home">Home Decor</option>
                         <option value="other">Other</option>
                       </select>
                     </div>
@@ -246,21 +283,39 @@ export default function AdminPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Buy Links (leave empty to auto-generate)
-                    </label>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium">Buy Links</label>
+                      <button
+                        onClick={() => addBuyLink(pIdx)}
+                        type="button"
+                        className="text-sm text-purple-600 hover:text-purple-800 font-bold"
+                      >
+                        + Add Link
+                      </button>
+                    </div>
                     {product.buy_links.map((link, lIdx) => (
                       <div key={lIdx} className="flex gap-2 mb-2">
-                        <span className="px-3 py-2 bg-purple-100 rounded font-medium min-w-[140px] text-sm">
-                          {link.store_name}
-                        </span>
+                        <input
+                          type="text"
+                          value={link.store_name}
+                          onChange={(e) => updateBuyLinkStore(pIdx, lIdx, e.target.value)}
+                          placeholder="Store name or @mention"
+                          className="w-40 px-3 py-2 border rounded text-sm text-black"
+                        />
                         <input
                           type="url"
                           value={link.url}
                           onChange={(e) => updateBuyLink(pIdx, lIdx, e.target.value)}
-                          placeholder="Optional - paste product URL"
+                          placeholder="Product URL or Instagram link"
                           className="flex-1 px-3 py-2 border rounded text-sm text-black"
                         />
+                        <button
+                          onClick={() => removeBuyLink(pIdx, lIdx)}
+                          type="button"
+                          className="px-3 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 text-sm font-bold"
+                        >
+                          ✕
+                        </button>
                       </div>
                     ))}
                   </div>

@@ -10,11 +10,12 @@ if sys.platform == "win32":
 
 """
 ONE-COMMAND INFLUENCER SCRAPER
-Usage: python add_influencer.py "sarahhanyofficial"
+Usage: python add_influencer.py "sarahhanyofficial" instagram 20
 """
 
 import json
 import time
+import re  # ✅ NEW - For extracting mentions
 from pathlib import Path
 from dotenv import load_dotenv
 from apify_client import ApifyClient
@@ -28,59 +29,47 @@ apify = ApifyClient(os.getenv("APIFY_API_TOKEN"))
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+# ✅ NEW FUNCTION - Extract @mentions
+def extract_mentions(caption: str):
+    """Extract @mentions from caption"""
+    mentions = re.findall(r'@([a-zA-Z0-9._]+)', caption)
+    return list(set(mentions))  # Remove duplicates
+
 def scrape_real_buy_links(product_name: str, brand: str):
     """
     Simple search URLs - no scraping, no affiliate needed
     """
     from urllib.parse import quote_plus
     
-    search_query = f"{brand} {product_name}".strip()
+    query = f"{brand} {product_name}".strip() if brand else product_name
+    encoded = quote_plus(query)
     
-    print(f"    🔍 Creating links for: {search_query}")
-    
-    links = []
-    
-    # Jumia Egypt
-    jumia_url = f"https://www.jumia.com.eg/catalog/?q={quote_plus(search_query)}"
-    links.append({
-        "store_name": "Jumia Egypt",
-        "url": jumia_url,
-        "price": None,
-        "currency": "EGP"
-    })
-    print(f"      ✅ Jumia Egypt")
-    
-    # Noon Egypt
-    noon_url = f"https://www.noon.com/egypt-en/search?q={quote_plus(search_query)}"
-    links.append({
-        "store_name": "Noon Egypt",
-        "url": noon_url,
-        "price": None,
-        "currency": "EGP"
-    })
-    print(f"      ✅ Noon Egypt")
-    
-    # Amazon Egypt
-    amazon_url = f"https://www.amazon.eg/s?k={quote_plus(search_query)}"
-    links.append({
-        "store_name": "Amazon Egypt",
-        "url": amazon_url,
-        "price": None,
-        "currency": "EGP"
-    })
-    print(f"      ✅ Amazon Egypt")
-    
-    # Google Shopping
-    google_url = f"https://www.google.com/search?tbm=shop&q={quote_plus(search_query)}"
-    links.append({
-        "store_name": "Google Shopping",
-        "url": google_url,
-        "price": None,
-        "currency": None
-    })
-    print(f"      ✅ Google Shopping")
-    
-    return links
+    return [
+        {
+            "store_name": "Amazon Egypt",
+            "url": f"https://www.amazon.eg/s?k={encoded}",
+            "price": None,
+            "currency": "EGP"
+        },
+        {
+            "store_name": "Noon Egypt",
+            "url": f"https://www.noon.com/egypt-en/search?q={encoded}",
+            "price": None,
+            "currency": "EGP"
+        },
+        {
+            "store_name": "Jumia Egypt",
+            "url": f"https://www.jumia.com.eg/catalog/?q={encoded}",
+            "price": None,
+            "currency": "EGP"
+        },
+        {
+            "store_name": "Google Shopping",
+            "url": f"https://www.google.com/search?tbm=shop&q={encoded}",
+            "price": None,
+            "currency": None
+        }
+    ]
 
 
 def scrape_and_process(username: str, platform: str = "instagram", limit: int = 20):
@@ -132,58 +121,68 @@ def scrape_and_process(username: str, platform: str = "instagram", limit: int = 
         influencer_id = author.get("id")
         profile_pic = author.get("avatar") or ""
     
-    print(f"👤 Influencer: {influencer_name} (ID: {influencer_id})")
-    print(f"📸 Profile Pic: {profile_pic[:60] if profile_pic else 'None'}...\n")
+    print(f"👤 Influencer: {influencer_name}")
+    print(f"🆔 ID: {influencer_id}")
+    print(f"📸 Profile pic: {profile_pic[:60] if profile_pic else 'None'}...\n")
     
-    # STEP 3: TRANSCRIBE VIDEOS WITH DEBUG
-    print("🎤 Step 2: Transcribing videos...")
+    # STEP 3: EXTRACT TRANSCRIPTS + CDN VIDEO URLS
+    print("📝 Step 2: Extracting captions + CDN video URLs...\n")
     
     transcriptions = []
-    for i, video in enumerate(items[:limit]):
-        video_url = video.get("videoUrl") or video.get("video", {}).get("downloadAddr")
-        caption = video.get("caption") or video.get("title", "")
+    
+    for i, video in enumerate(items, 1):
+        caption = video.get("caption") or video.get("text", "")
         
-        if not video_url:
+        if not caption or not caption.strip():
+            print(f"  [{i}/{len(items)}] ⏭️  No caption, skipping...")
             continue
         
-        print(f"  [{i+1}/{len(items)}] Processing...")
-        
         try:
-            transcript = caption
+            transcript = caption.strip()
             
-            # 🔍 DEBUG: Print ALL available fields
-            print(f"    🔍 Available fields: {list(video.keys())}")
+            print(f"  [{i}/{len(items)}] ✅ Caption: {transcript[:60]}...")
             
-            # Try multiple possible ID fields
-            video_id = (
-                video.get("id") or 
-                video.get("videoId") or 
-                video.get("shortCode") or
-                video.get("code") or
-                video.get("pk") or
+            # ====================================================================
+            # 🔥 EXTRACT CDN VIDEO URL (DIRECT .MP4 LINK)
+            # ====================================================================
+            
+            # Try multiple possible CDN URL fields
+            cdn_video_url = (
+                video.get("videoUrl") or          # Instagram CDN
+                video.get("video_url") or
+                video.get("downloadAddr") or      # TikTok download address
+                video.get("playAddr") or          # TikTok play address
+                video.get("url") or
                 ""
             )
             
-            print(f"    🆔 Extracted ID: '{video_id}'")
-            print(f"    🔗 Raw videoUrl: {video_url[:100] if video_url else 'None'}...")
+            print(f"    🔗 CDN URL: {cdn_video_url[:80] if cdn_video_url else 'NONE'}...")
             
-            # Build proper video URL
-            if platform == "instagram":
-                if video_id:
-                    full_video_url = f"https://www.instagram.com/reel/{video_id}/"
-                    print(f"    ✅ Built URL from ID: {full_video_url}")
-                elif video_url and "instagram.com" in str(video_url):
-                    full_video_url = video_url
-                    print(f"    ✅ Using raw URL: {full_video_url[:80]}...")
-                else:
-                    full_video_url = ""
-                    print(f"    ❌ NO VIDEO URL FOUND!")
-            else:  # tiktok
-                full_video_url = video_url
+            # Fallback: if no CDN URL, try to extract from videoMeta
+            if not cdn_video_url and platform == "tiktok":
+                video_meta = video.get("videoMeta", {})
+                play_addr = video_meta.get("playAddr") or video_meta.get("downloadAddr")
+                if play_addr:
+                    cdn_video_url = play_addr
+                    print(f"    🔗 Extracted from videoMeta: {cdn_video_url[:80]}...")
+            
+            # DEBUG: Print all available keys if no URL found
+            if not cdn_video_url:
+                print(f"    ⚠️  No video URL found!")
+                print(f"    🔍 Available fields: {list(video.keys())[:15]}...")
+            
+            # Use the CDN URL directly
+            full_video_url = cdn_video_url
+            
+            # ✅ NEW - Extract @mentions from caption
+            mentions = extract_mentions(transcript)
+            if mentions:
+                print(f"    📍 Found mentions: {', '.join(['@' + m for m in mentions])}")
             
             transcriptions.append({
                 "video_url": full_video_url,
                 "transcript": transcript,
+                "mentions": mentions,  # ✅ NEW
                 "platform": platform,
                 "influencer_name": influencer_name
             })
@@ -194,29 +193,37 @@ def scrape_and_process(username: str, platform: str = "instagram", limit: int = 
             traceback.print_exc()
             continue
     
-    print(f"✅ Transcribed {len(transcriptions)} videos\n")
+    print(f"✅ Processed {len(transcriptions)} videos with CDN URLs\n")
     
     # STEP 4: EXTRACT PRODUCTS WITH AI
-    print("🤖 Step 3: Extracting products with AI...")
+    print("🤖 Step 3: Extracting products with AI...\n")
     
     all_products = []
     
-    for trans in transcriptions:
+    for i, trans in enumerate(transcriptions, 1):
         if not trans["transcript"].strip():
             continue
         
-        prompt = f"""
-Extract ALL beauty/lifestyle products mentioned in this video caption/transcript.
+        print(f"  [{i}/{len(transcriptions)}] Analyzing...")
+        
+        # ✅ UPDATED PROMPT - Extract EVERYTHING!
+        prompt = f"""Extract ALL products, items, brands, or recommendations mentioned in this social media caption.
 
-Transcript: "{trans['transcript']}"
+This includes:
+- Beauty products (makeup, skincare, haircare, fragrance)
+- Fashion items (clothes, dresses, tops, pants, shoes, bags, accessories, jewelry)
+- Lifestyle products (home decor, tech, gadgets, food, drinks, supplements)
+- Services (salons, restaurants, apps, websites, stores)
+
+Caption: "{trans['transcript']}"
 
 Return ONLY valid JSON array:
 [
   {{
-    "product_name": "Exact product name",
-    "brand": "Brand name",
-    "category": "makeup/skincare/haircare/fragrance/other",
-    "quote": "Exact quote about the product from transcript"
+    "product_name": "Exact product/item name",
+    "brand": "Brand name or @mention if it's a local brand/page",
+    "category": "makeup/skincare/haircare/fragrance/fashion/shoes/bags/jewelry/accessories/tech/food/lifestyle/home/other",
+    "quote": "Exact quote from caption about this product"
   }}
 ]
 
@@ -233,6 +240,7 @@ If no products found, return: []
             
             raw = response.choices[0].message.content.strip()
             
+            # Clean up markdown code blocks
             if raw.startswith("```"):
                 lines = raw.split("\n")
                 raw = "\n".join(lines[1:-1])
@@ -243,14 +251,15 @@ If no products found, return: []
             
             for product in products:
                 product["influencer_name"] = influencer_name
-                product["video_url"] = trans["video_url"]
+                product["video_url"] = trans["video_url"]  # ✅ CDN URL
                 product["platform"] = platform
+                product["mentions"] = trans["mentions"]  # ✅ NEW - Store mentions
                 all_products.append(product)
             
-            print(f"  ✅ Found {len(products)} products")
+            print(f"      ✅ Found {len(products)} products")
             
         except Exception as e:
-            print(f"  ⚠️ AI extraction failed: {e}")
+            print(f"      ⚠️ AI extraction failed: {e}")
             continue
     
     print(f"✅ Extracted {len(all_products)} total products\n")
@@ -261,6 +270,7 @@ If no products found, return: []
     uploaded = 0
     for product in all_products:
         try:
+            # Check if product already exists
             existing = supabase.table("products").select("id").eq(
                 "product_name", product["product_name"]
             ).eq(
@@ -280,14 +290,14 @@ If no products found, return: []
                 "influencer_name": influencer_name,
                 "influencer_profile_pic": profile_pic,
                 "platform": platform,
-                "video_url": product.get("video_url", "")
+                "video_url": product.get("video_url", "")  # ✅ CDN URL saved here
             }
             
             product_result = supabase.table("products").insert(product_data).execute()
             product_id = product_result.data[0]["id"]
             
             print(f"  📦 {product['product_name']}")
-            print(f"      📹 Video: {product.get('video_url', 'NO URL')[:60]}...")
+            print(f"      📹 CDN Video: {product.get('video_url', 'NO URL')[:60]}...")
             
             # SCRAPE REAL LINKS
             real_links = scrape_real_buy_links(
@@ -298,18 +308,34 @@ If no products found, return: []
             # Insert buy links
             for link in real_links:
                 try:
-                    supabase.table("buy_links").insert({
-                        "product_id": product_id,
-                        "store_name": link["store_name"],
-                        "url": link["url"],
-                        "price": link.get("price"),
-                        "currency": link.get("currency")
-                    }).execute()
+                  supabase.table("buy_links").insert({
+    "product_id": product_id,
+    "store": link["store_name"],  # ✅ CORRECT - database column is "store"
+    "url": link["url"],
+    "price": link.get("price"),
+    "currency": link.get("currency")
+}).execute()
                 except Exception as e:
                     print(f"      ❌ {link['store_name']}: {e}")
             
+            # ✅ NEW - Add @mentions as buy links
+            mentions = product.get("mentions", [])
+            for mention in mentions:
+                try:
+                    instagram_url = f"https://www.instagram.com/{mention}/"
+                    supabase.table("buy_links").insert({
+    "product_id": product_id,
+    "store": f"@{mention}",  # ✅ CORRECT
+    "url": instagram_url,
+    "price": None,
+    "currency": None
+}).execute()
+                    print(f"      📍 Added mention: @{mention}")
+                except Exception as e:
+                    print(f"      ❌ @{mention}: {e}")
+            
             uploaded += 1
-            print(f"      ✅ Added {len(real_links)} links\n")
+            print(f"      ✅ Added {len(real_links) + len(mentions)} buy links\n")
             
             time.sleep(1)
             
@@ -323,20 +349,16 @@ If no products found, return: []
     print(f"✅ COMPLETE - {influencer_name}")
     print(f"{'='*60}")
     print(f"  Videos scraped: {len(items)}")
-    print(f"  Transcriptions: {len(transcriptions)}")
+    print(f"  Processed: {len(transcriptions)}")
     print(f"  Products extracted: {len(all_products)}")
     print(f"  New products added: {uploaded}")
-    print(f"  Profile pic: {'✅' if profile_pic else '❌'}")
     print(f"{'='*60}\n")
 
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python add_influencer.py <username> [platform] [limit]")
-        print("\nExamples:")
-        print("  python add_influencer.py sarahhanyofficial")
-        print("  python add_influencer.py sarahhany tiktok 30")
-        print("  python add_influencer.py hudabeauty instagram 50")
+        print('Example: python add_influencer.py "sarahhanyofficial" instagram 20')
         sys.exit(1)
     
     username = sys.argv[1]

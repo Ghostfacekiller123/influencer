@@ -99,23 +99,75 @@ def fetch_buy_links(product_ids: list[str]) -> dict[str, list[dict]]:
 
 
 def enrich_products(products: list[dict]) -> list[dict]:
-    """Attach buy_links to each product record."""
-    ids = [p["id"] for p in products]
-    links_map = fetch_buy_links(ids)
-    for p in products:
-        p["buy_links"] = links_map.get(p["id"], [])
-    return products
-
-
-def detect_influencer(query: str, influencers: list[dict]) -> Optional[str]:
-    """Return influencer name if query contains their name (case-insensitive)."""
-    query_lower = query.lower()
-    for inf in influencers:
-        if inf["name"].lower() in query_lower:
-            return inf["name"]
-    return None
-
-
+    """Enrich products with buy links."""
+    from urllib.parse import quote_plus
+    
+    enriched = []
+    for product in products:
+        # Fetch buy links for this product
+        resp = supabase.table("buy_links").select("*").eq("product_id", product["id"]).execute()
+        
+        buy_links = [
+            {
+                "id": link.get("id"),
+                "store_name": link.get("store"),  # ✅ Map "store" to "store_name"
+                "price": link.get("price"),
+                "currency": link.get("currency"),
+                "url": link.get("url"),
+                "in_stock": link.get("in_stock"),
+            }
+            for link in (resp.data or [])
+        ]
+        
+        # ✅ AUTO-GENERATE FALLBACK LINKS IF NONE EXIST
+        if not buy_links:
+            search_query = f"{product.get('brand', '')} {product.get('product_name', '')}".strip()
+            encoded = quote_plus(search_query)
+            
+            buy_links = [
+                {
+                    "id": "",
+                    "store_name": "Amazon Egypt",
+                    "url": f"https://www.amazon.eg/s?k={encoded}",
+                    "price": None,
+                    "currency": "EGP"
+                },
+                {
+                    "id": "",
+                    "store_name": "Noon Egypt",
+                    "url": f"https://www.noon.com/egypt-en/search?q={encoded}",
+                    "price": None,
+                    "currency": "EGP"
+                },
+                {
+                    "id": "",
+                    "store_name": "Jumia Egypt",
+                    "url": f"https://www.jumia.com.eg/catalog/?q={encoded}",
+                    "price": None,
+                    "currency": "EGP"
+                },
+                {
+                    "id": "",
+                    "store_name": "Google Shopping",
+                    "url": f"https://www.google.com/search?tbm=shop&q={encoded}",
+                    "price": None,
+                    "currency": None
+                }
+            ]
+        
+        enriched.append({
+            "id": product.get("id"),
+            "influencer_name": product.get("influencer_name"),
+            "influencer_profile_pic": product.get("influencer_profile_pic"),
+            "product_name": product.get("product_name"),
+            "brand": product.get("brand"),
+            "category": product.get("category"),
+            "quote": product.get("quote"),
+            "video_url": product.get("video_url"),
+            "platform": product.get("platform"),
+            "buy_links": buy_links
+        })
+    return enriched
 KNOWN_CATEGORIES = [
     "skincare", "makeup", "haircare", "fragrance", "fashion",
     "food", "tech", "lifestyle", "beauty", "other",
@@ -183,7 +235,7 @@ def search(q: str = Query(..., min_length=1, description="Search query")):
 
 @app.get("/products")
 def list_products(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),  # ✅ Max 1000
     offset: int = Query(0, ge=0),
 ):
     """List all products with buy links."""
@@ -310,7 +362,7 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
         json_start = raw.find('{')
         json_end = raw.rfind('}') + 1
         
-        if json_start == -1 or json_end == 0:
+        if json_start == -1 or json_end == 0:  # ✅ ADD 8 SPACES HERE!
             if '"answer":' in raw and '"recommended_products":' in raw:
                 answer_start = raw.find('"answer":')
                 products_end = raw.rfind(']')
@@ -320,15 +372,15 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
                     return {
                         "question": req.question,
                         "answer": "Here are some products! 💄",
-                        "products": filtered_products[:8],
-                        "total_products": len(filtered_products[:8])
+                        "products": filtered_products,
+                        "total_products": len(filtered_products)
                     }
             else:
                 return {
                     "question": req.question,
                     "answer": "Here are some products! 💄",
-                    "products": filtered_products[:8],
-                    "total_products": len(filtered_products[:8])
+                    "products": filtered_products,
+                    "total_products": len(filtered_products)
                 }
         else:
             json_str = raw[json_start:json_end]
@@ -339,8 +391,8 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
             return {
                 "question": req.question,
                 "answer": "I found some products for you! 💄",
-                "products": filtered_products[:8],
-                "total_products": len(filtered_products[:8])
+                "products": filtered_products,
+                "total_products": len(filtered_products)
             }
 
         recommended_names = ai_response.get("recommended_products", [])
@@ -355,7 +407,7 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
                     break
 
         if not recommended:
-            recommended = filtered_products[:8]
+            recommended = filtered_products
 
         return {
             "question": req.question,
@@ -369,10 +421,9 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
         return {
             "question": req.question,
             "answer": "I found some products for you! 💄",
-            "products": filtered_products[:8] if 'filtered_products' in locals() else products[:8],
-            "total_products": 8
+            "products": filtered_products if 'filtered_products' in locals() else products,
+            "total_products": len(filtered_products) if 'filtered_products' in locals() else len(products)
         }
-
 
 # ── Admin Endpoints ────────────────────────────────────────────────────────────
 
@@ -487,27 +538,39 @@ def parse_influencer_products(req: ParseInfluencerRequest):
         all_products = []
         
         for i, video in enumerate(items):
-            caption = video.get("caption") or video.get("title", "")
+            caption = video.get("caption") or video.get("text", "")
             
             if not caption.strip():
                 continue
             
             print(f"  [{i+1}/{len(items)}] Processing...")
             
-            # 🔍 DEBUG VIDEO FIELDS
-            print(f"    🔍 Video keys: {list(video.keys())}")
-            video_id = (
-                video.get("id") or 
-                video.get("videoId") or 
-                video.get("shortCode") or
-                video.get("code") or
-                video.get("pk") or
+            # ====================================================================
+            # 🔥 EXTRACT CDN VIDEO URL (DIRECT .MP4 LINK)
+            # ====================================================================
+            cdn_video_url = (
+                video.get("videoUrl") or          # Instagram CDN
+                video.get("video_url") or
+                video.get("downloadAddr") or      # TikTok download address
+                video.get("playAddr") or          # TikTok play address
+                video.get("url") or
                 ""
             )
-            print(f"    🆔 ID: '{video_id}'")
-            video_url = video.get("videoUrl") or video.get("url") or ""
-            print(f"    🔗 URL: {video_url[:80] if video_url else 'None'}...")
             
+            # Fallback for TikTok: check videoMeta
+            if not cdn_video_url and req.platform == "tiktok":
+                video_meta = video.get("videoMeta", {})
+                play_addr = video_meta.get("playAddr") or video_meta.get("downloadAddr")
+                if play_addr:
+                    cdn_video_url = play_addr
+            
+            print(f"    🔗 CDN URL: {cdn_video_url[:80] if cdn_video_url else 'NONE'}...")
+            
+            if not cdn_video_url:
+                print(f"    ⚠️ No CDN URL found, skipping...")
+                continue
+            
+            # AI Extraction with CDN URL embedded
             prompt = f"""Extract beauty/lifestyle products from: "{caption}"
 
 Return JSON:
@@ -516,8 +579,8 @@ Return JSON:
     "product_name": "Product name",
     "brand": "Brand",
     "category": "makeup/skincare/haircare/fragrance/other",
-    "quote": "Quote",
-    "video_url": "{f'https://www.instagram.com/reel/{video_id}/' if video_id else video_url}"
+    "quote": "Quote from caption",
+    "video_url": "{cdn_video_url}"
   }}
 ]
 
@@ -542,6 +605,7 @@ If none: []"""
                 products = json.loads(raw)
                 
                 for product in products:
+                    # Add empty buy links for frontend
                     product["buy_links"] = [
                         {"store_name": "Jumia Egypt", "url": "", "currency": "EGP"},
                         {"store_name": "Noon Egypt", "url": "", "currency": "EGP"},
@@ -571,7 +635,6 @@ If none: []"""
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc))
-
 
 @app.post("/admin/save-products")
 def save_verified_products(req: SaveProductsRequest):
@@ -644,12 +707,12 @@ def save_verified_products(req: SaveProductsRequest):
                     if url:
                         try:
                             supabase.table("buy_links").insert({
-                                "product_id": product_id,
-                                "store_name": link["store_name"],
-                                "url": url,
-                                "price": link.get("price"),
-                                "currency": link.get("currency")
-                            }).execute()
+    "product_id": product_id,
+    "store": link["store_name"],  # ✅ CORRECT
+    "url": url,
+    "price": link.get("price"),
+    "currency": link.get("currency")
+}).execute()
                             links_added += 1
                         except Exception as e:
                             print(f"      ⚠️ Link failed: {e}")
@@ -673,6 +736,72 @@ def save_verified_products(req: SaveProductsRequest):
         print(f"❌ ERROR: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
+@app.delete("/admin/delete-product/{product_id}")
+def delete_product(product_id: str):
+    """Delete a product and its buy links"""
+    try:
+        # Buy links will auto-delete due to CASCADE
+        supabase.table("products").delete().eq("id", product_id).execute()
+        return {"success": True, "message": "Product deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/admin/update-product/{product_id}")
+def update_product(product_id: str, req: dict):
+    """Update product details and buy links"""
+    try:
+        print(f"\n🔧 Updating product {product_id}")
+        print(f"📦 Received data: {req}")  # ✅ DEBUG LOG
+        
+        # Update product
+        product_data = {
+            "product_name": req.get("product_name"),
+            "brand": req.get("brand", ""),
+            "category": req.get("category", "other"),
+            "quote": req.get("quote", ""),
+        }
+        
+        print(f"✏️  Updating product: {product_data}")
+        supabase.table("products").update(product_data).eq("id", product_id).execute()
+        
+        # Delete old buy links
+        print(f"🗑️  Deleting old buy links...")
+        supabase.table("buy_links").delete().eq("product_id", product_id).execute()
+        
+        # Add new buy links
+        buy_links = req.get("buy_links", [])
+        print(f"🔗 Adding {len(buy_links)} buy links...")
+        
+        for i, link in enumerate(buy_links):
+            url = link.get("url", "").strip()
+            store_name = link.get("store_name", "").strip()
+            
+            print(f"  [{i+1}] Store: '{store_name}', URL: '{url[:50] if url else 'EMPTY'}'...")
+            
+            if url and store_name:  # ✅ Require BOTH store name and URL
+                try:
+                    supabase.table("buy_links").insert({
+                        "product_id": product_id,
+                        "store": store_name,  # ✅ Database column is "store"
+                        "url": url,
+                        "price": link.get("price"),
+                        "currency": link.get("currency")
+                    }).execute()
+                    print(f"      ✅ Added")
+                except Exception as link_error:
+                    print(f"      ❌ Failed to add link: {link_error}")
+            else:
+                print(f"      ⏭️  Skipped (missing store or url)")
+        
+        print(f"✅ Product updated successfully!\n")
+        return {"success": True, "message": "Product updated"}
+        
+    except Exception as e:
+        print(f"❌ ERROR updating product: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/admin/add-influencer")
 async def add_influencer(req: AddInfluencerRequest):

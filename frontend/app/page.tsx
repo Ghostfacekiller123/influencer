@@ -135,15 +135,15 @@ export default function HomePage() {
         )}
 
         {/* Results grid */}
-        {!loading && products.length > 0 && (
-          <>
-            <p className="text-gray-500 mb-6 font-medium">
-              {aiAnswer
-                ? `Found ${products.length} recommended product${products.length !== 1 ? 's' : ''}`
-                : `Found ${products.length} product${products.length !== 1 ? 's' : ''} for "${query}"`
-              }
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+     {!loading && products.length > 0 && (
+  <>
+    <p className="text-gray-500 mb-6 font-medium">
+      {aiAnswer
+        ? `Found ${products.length} product${products.length !== 1 ? 's' : ''} used by ${products[0]?.influencer_name || 'this influencer'}`  // ✅ CHANGED
+        : `Found ${products.length} product${products.length !== 1 ? 's' : ''} for "${query}"`
+      }
+    </p>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {products.map((product, index) => (
                 <div
                   key={product.id ?? index}

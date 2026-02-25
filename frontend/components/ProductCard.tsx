@@ -38,6 +38,11 @@ const STORE_ICONS: Record<string, string> = {
   'Google Shopping': '🔍',
 }
 
+// Fallback function to get icon
+const getStoreIcon = (storeName: string) => {
+  return STORE_ICONS[storeName] || '🛍️';
+};
+
 interface ProductCardProps {
   product: Product
 }
@@ -115,8 +120,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             {product.buy_links.map((link, i) => (
               <div key={link.id ?? i} className="flex items-center justify-between gap-2">
                 <span className="text-sm text-gray-700 font-medium">
-                  {STORE_ICONS[link.store_name] ?? '🛍️'} {link.store_name}
-                </span>
+{getStoreIcon(link.store_name)} {link.store_name}                </span>
                 <div className="flex items-center gap-2">
                   {link.price && (
                     <span className="text-sm font-bold text-gray-900">
