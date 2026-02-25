@@ -837,20 +837,25 @@ def delete_product(product_id: str):
     try:
         print(f"\n🗑️ Deleting product {product_id}...")
 
-        # Step 1: Delete buy_links first (manually, don't rely on CASCADE)
+        # Step 1: Check if product exists
+        print("  🔍 Checking if product exists...")
+        product_check = supabase.table("products").select("id").eq("id", product_id).execute()
+
+        if not product_check.data or len(product_check.data) == 0:
+            print(f"  ❌ Product {product_id} not found")
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        print("  ✅ Product exists")
+
+        # Step 2: Delete buy_links first (even though CASCADE should handle it)
         print("  ⏳ Deleting buy links...")
         buy_links_result = supabase.table("buy_links").delete().eq("product_id", product_id).execute()
         deleted_links = len(buy_links_result.data) if buy_links_result.data else 0
         print(f"  ✅ Deleted {deleted_links} buy links")
 
-        # Step 2: Delete the product
+        # Step 3: Delete the product (don't check result since Supabase doesn't return deleted rows)
         print("  ⏳ Deleting product...")
-        product_result = supabase.table("products").delete().eq("id", product_id).execute()
-
-        # Step 3: Verify deletion
-        if not product_result.data or len(product_result.data) == 0:
-            print(f"  ❌ Product {product_id} not found or already deleted")
-            raise HTTPException(status_code=404, detail="Product not found")
+        supabase.table("products").delete().eq("id", product_id).execute()
 
         print(f"  ✅ Product deleted successfully\n")
 
