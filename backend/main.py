@@ -955,6 +955,23 @@ async def add_influencer(req: AddInfluencerRequest):
                 scrape_tasks[task_id]["status"] = "complete"
                 scrape_tasks[task_id]["progress"] = 100
                 scrape_tasks[task_id]["message"] = "✅ Complete!"
+                # Auto-add to monster watchlist
+                influencer_handle = req.handle
+                try:
+                    watchlist_check = supabase.table("influencer_watchlist").select("id").eq(
+                        "handle", influencer_handle
+                    ).eq("platform", "instagram").execute()
+
+                    if not watchlist_check.data or len(watchlist_check.data) == 0:
+                        supabase.table("influencer_watchlist").insert({
+                            "handle": influencer_handle,
+                            "platform": "instagram",
+                            "status": "active",
+                            "added_by": "manual"
+                        }).execute()
+                        print(f"  ✅ Added @{influencer_handle} to monster watchlist")
+                except Exception as e:
+                    print(f"  ⚠️  Failed to add to watchlist: {e}")
             else:
                 scrape_tasks[task_id]["status"] = "failed"
                 scrape_tasks[task_id]["message"] = f"❌ Error: {result.stderr}"
@@ -976,6 +993,116 @@ async def get_task_status(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found")
     
     return scrape_tasks[task_id]
+
+
+# ── Monster Control Endpoints ──────────────────────────────────────────────────
+
+from datetime import datetime as _dt
+
+
+@app.get("/admin/monster/status")
+def get_monster_status():
+    """Return monster status, watchlist counts, today's stats, and recent logs."""
+    try:
+        config_result = supabase.table("monster_config").select("*").limit(1).execute()
+        config = config_result.data[0] if config_result.data else {}
+
+        watchlist_result = supabase.table("influencer_watchlist").select("id", count="exact").eq(
+            "status", "active"
+        ).execute()
+        total_watchlist = watchlist_result.count or 0
+
+        today = _dt.utcnow().date().isoformat()
+        logs_result = supabase.table("processing_logs").select("*").gte(
+            "created_at", today
+        ).order("created_at", desc=True).limit(10).execute()
+        logs = logs_result.data or []
+        products_today = sum(l.get("products_saved", 0) for l in logs)
+
+        return {
+            "is_active": config.get("is_active", False),
+            "monitoring_interval": config.get("monitoring_interval", 21600),
+            "total_watchlist": total_watchlist,
+            "products_added_today": products_today,
+            "recent_logs": logs,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/monster/start")
+def start_monster():
+    """Activate the monster (set is_active = true)."""
+    try:
+        supabase.table("monster_config").update({
+            "is_active": True,
+            "updated_at": _dt.utcnow().isoformat(),
+        }).neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        return {"success": True, "message": "Monster activated 🔥"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/monster/stop")
+def stop_monster():
+    """Deactivate the monster (set is_active = false)."""
+    try:
+        supabase.table("monster_config").update({
+            "is_active": False,
+            "updated_at": _dt.utcnow().isoformat(),
+        }).neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        return {"success": True, "message": "Monster stopped 😴"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/monster/parse-now/{handle}")
+def parse_influencer_now(handle: str):
+    """Immediately process a specific influencer via the Monster."""
+    try:
+        from monster import Monster
+        monster = Monster()
+        result = monster.process_influencer(handle, "instagram")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/watchlist")
+def get_watchlist():
+    """Return all influencers in the watchlist."""
+    try:
+        result = supabase.table("influencer_watchlist").select("*").order(
+            "created_at", desc=True
+        ).execute()
+        return {"watchlist": result.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/watchlist/add")
+def add_to_watchlist(handle: str, platform: str = "instagram"):
+    """Add an influencer to the watchlist."""
+    try:
+        supabase.table("influencer_watchlist").insert({
+            "handle": handle,
+            "platform": platform,
+            "status": "active",
+            "added_by": "manual",
+        }).execute()
+        return {"success": True, "message": f"Added @{handle} to watchlist"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/watchlist/remove/{handle}")
+def remove_from_watchlist(handle: str):
+    """Remove an influencer from the watchlist."""
+    try:
+        supabase.table("influencer_watchlist").delete().eq("handle", handle).execute()
+        return {"success": True, "message": f"Removed @{handle} from watchlist"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
