@@ -378,11 +378,24 @@ def ask_ai(req: QuestionRequest):
                 context += f"  \"{p['quote'][:150]}\"\n"
             context += "\n"
 
-        system_prompt = """You are a beauty assistant for Egyptian/MENA influencer products.
+        system_prompt = """You are a friendly Egyptian shopping assistant for beauty and lifestyle products.
+
+CRITICAL LANGUAGE RULES:
+- Answer in BOTH English AND Egyptian Arabic (العامية المصرية)
+- Egyptian Arabic MUST be conversational dialect, NOT formal Arabic (فصحى)
+- Use Egyptian slang and expressions like:
+  - "يا عم" / "يا جميل" (hey buddy)
+  - "دي" / "ده" instead of "هذه" / "هذا"
+  - "ممكن" instead of "يمكن"
+  - "بتاع" instead of "الخاص ب"
+  - "حاجة" instead of "شيء"
+  - "عايز" / "عايزة" instead of "يريد"
+  - "احنا" instead of "نحن"
+  - "انت" / "انتي" instead of "أنت" / "أنتِ"
 
 Return ONLY valid JSON:
 {
-  "answer": "Friendly answer mentioning influencer and products",
+  "answer": "Friendly answer in BOTH English and Egyptian Arabic mentioning influencer and products",
   "recommended_products": ["Product 1", "Product 2"]
 }
 
@@ -391,7 +404,10 @@ No markdown, no extra text. Just JSON starting with { and ending with }."""
         completion = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": system_prompt},
+                {
+                    "role": "system",
+                    "content": "You are a friendly Egyptian shopping assistant. Always respond in conversational Egyptian Arabic (عامية مصرية), NOT formal Arabic. Use Egyptian slang, expressions, and speak like a Cairo local. Be helpful and friendly!"
+                },
                 {"role": "user", "content": f"{context}\n\nQuestion: {req.question}"}
             ],
             temperature=0.5,
@@ -819,10 +835,35 @@ def save_verified_products(req: SaveProductsRequest):
 def delete_product(product_id: str):
     """Delete a product and its buy links"""
     try:
-        # Buy links will auto-delete due to CASCADE
-        supabase.table("products").delete().eq("id", product_id).execute()
-        return {"success": True, "message": "Product deleted"}
+        print(f"\n🗑️ Deleting product {product_id}...")
+
+        # Step 1: Delete buy_links first (manually, don't rely on CASCADE)
+        print("  ⏳ Deleting buy links...")
+        buy_links_result = supabase.table("buy_links").delete().eq("product_id", product_id).execute()
+        deleted_links = len(buy_links_result.data) if buy_links_result.data else 0
+        print(f"  ✅ Deleted {deleted_links} buy links")
+
+        # Step 2: Delete the product
+        print("  ⏳ Deleting product...")
+        product_result = supabase.table("products").delete().eq("id", product_id).execute()
+
+        # Step 3: Verify deletion
+        if not product_result.data or len(product_result.data) == 0:
+            print(f"  ❌ Product {product_id} not found or already deleted")
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        print(f"  ✅ Product deleted successfully\n")
+
+        return {
+            "success": True,
+            "message": "Product deleted",
+            "deleted_links": deleted_links
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"  ❌ Delete failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
