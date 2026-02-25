@@ -532,13 +532,26 @@ def parse_influencer_products(req: ParseInfluencerRequest):
         if req.platform == "instagram":
             influencer_name = first_video.get("ownerFullName") or first_video.get("ownerUsername") or req.handle
             profile_pic = first_video.get("ownerProfilePicUrl") or ""
+            
+            # If profile pic not in video data, use dedicated profile scraper
+            if not profile_pic:
+                try:
+                    print("📸 Fetching profile pic via profile scraper...")
+                    profile_run = client.actor("apify/instagram-profile-scraper").call(
+                        run_input={"usernames": [req.handle]}
+                    )
+                    profile_items = list(client.dataset(profile_run["defaultDatasetId"]).iterate_items())
+                    if profile_items:
+                        profile_pic = profile_items[0].get("profilePicUrl") or profile_items[0].get("profilePicUrlHD") or ""
+                except Exception as e:
+                    print(f"⚠️ Profile scraper failed: {e}")
         else:
             author = first_video.get("authorMeta", {})
             influencer_name = author.get("nickName") or author.get("name") or req.handle
             profile_pic = author.get("avatar") or ""
         
         print(f"👤 Influencer: {influencer_name}")
-        print(f"📸 Profile: {profile_pic[:60]}...\n")
+        print(f"📸 Profile: {profile_pic[:60] if profile_pic else 'None'}...\n")
         
         print("🤖 Extracting products...\n")
         
@@ -612,6 +625,8 @@ If none: []"""
                 products = json.loads(raw)
                 
                 for product in products:
+                    # Explicitly set video_url from CDN URL (don't rely on AI)
+                    product["video_url"] = cdn_video_url
                     # Add empty buy links for frontend
                     product["buy_links"] = [
                         {"store_name": "Jumia Egypt", "url": "", "currency": "EGP"},
@@ -681,7 +696,7 @@ def save_verified_products(req: SaveProductsRequest):
 
                 # Parse @mentions from caption and create Instagram links FIRST
                 caption = product.get("quote", "")
-                mentions = re.findall(r'@(\w+)', caption)
+                mentions = re.findall(r'@([a-zA-Z0-9._]+)', caption)
                 for mention in mentions:
                     try:
                         supabase.table("buy_links").insert({
