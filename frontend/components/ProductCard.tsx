@@ -77,15 +77,19 @@ export default function ProductCard({ product }: ProductCardProps) {
       <div className="flex items-center gap-2">
         {product.influencer_profile_pic ? (
           <img
-            src={product.influencer_profile_pic}
+            src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/proxy-image?url=${encodeURIComponent(product.influencer_profile_pic)}`}
             alt={product.influencer_name}
             className="w-8 h-8 rounded-full border-2 border-purple-300 object-cover"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+            }}
           />
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-xs">
-            {product.influencer_name?.charAt(0)?.toUpperCase() || '?'}
-          </div>
-        )}
+        ) : null}
+        {/* Fallback letter avatar */}
+        <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-xs ${product.influencer_profile_pic ? 'hidden' : ''}`}>
+          {product.influencer_name?.charAt(0)?.toUpperCase() || '?'}
+        </div>
         <p className="text-sm text-gray-500">
           <span className="font-medium text-gray-700">By:</span> {product.influencer_name}
         </p>

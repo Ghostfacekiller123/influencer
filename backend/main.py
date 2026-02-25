@@ -11,9 +11,11 @@ import threading
 import uuid
 from typing import Optional
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from groq import Groq
 from pydantic import BaseModel
 
@@ -51,6 +53,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Image proxy ────────────────────────────────────────────────────────────────
+
+@app.get("/api/proxy-image")
+async def proxy_image(url: str):
+    """
+    Proxy external images to bypass CORS restrictions.
+    Used primarily for Instagram profile pictures.
+    """
+    try:
+        if not url.startswith("https://scontent") and not url.startswith("https://instagram"):
+            return Response(status_code=400, content="Invalid image URL")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                },
+                timeout=10.0,
+                follow_redirects=True
+            )
+
+            if response.status_code != 200:
+                return Response(status_code=404, content="Image not found")
+
+            return Response(
+                content=response.content,
+                media_type=response.headers.get("content-type", "image/jpeg"),
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Access-Control-Allow-Origin": "*"
+                }
+            )
+    except Exception as e:
+        print(f"Image proxy error: {e}")
+        return Response(status_code=500, content="Failed to load image")
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
