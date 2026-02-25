@@ -244,15 +244,18 @@ const startEdit = (product: Product) => {
                     <div className="flex-shrink-0">
                       {product.influencer_profile_pic ? (
                         <img
-                          src={product.influencer_profile_pic}
+                          src={`${API_URL}/api/proxy-image?url=${encodeURIComponent(product.influencer_profile_pic)}`}
                           alt={product.influencer_name}
                           className="w-16 h-16 rounded-full border-2 border-purple-300 object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                          }}
                         />
-                      ) : (
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-xl">
-                          {product.influencer_name?.charAt(0)?.toUpperCase() || '?'}
-                        </div>
-                      )}
+                      ) : null}
+                      <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-xl ${product.influencer_profile_pic ? 'hidden' : ''}`}>
+                        {product.influencer_name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
                     </div>
 
                     {/* Product Info */}
