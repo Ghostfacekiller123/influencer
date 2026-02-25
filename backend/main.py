@@ -56,6 +56,7 @@ app.add_middleware(
 
 class QuestionRequest(BaseModel):
     question: str
+    influencer_name: Optional[str] = None
 
 class InfluencerSearchRequest(BaseModel):
     handle: str
@@ -110,7 +111,7 @@ def enrich_products(products: list[dict]) -> list[dict]:
         buy_links = [
             {
                 "id": link.get("id"),
-                "store_name": link.get("store"),  # ✅ Map "store" to "store_name"
+                "store_name": link.get("store_name"),  # database column is "store_name"
                 "price": link.get("price"),
                 "currency": link.get("currency"),
                 "url": link.get("url"),
@@ -305,7 +306,12 @@ def ask_ai(req: QuestionRequest):
             target_influencer = 'huda'
         
         filtered_products = products
-        if target_influencer:
+        if req.influencer_name:
+            filtered_products = [
+                p for p in products
+                if req.influencer_name.lower() in p['influencer_name'].lower()
+            ]
+        elif target_influencer:
             filtered_products = [
                 p for p in products 
                 if target_influencer in p['influencer_name'].lower()
@@ -707,12 +713,12 @@ def save_verified_products(req: SaveProductsRequest):
                     if url:
                         try:
                             supabase.table("buy_links").insert({
-    "product_id": product_id,
-    "store": link["store_name"],  # ✅ CORRECT
-    "url": url,
-    "price": link.get("price"),
-    "currency": link.get("currency")
-}).execute()
+                                "product_id": product_id,
+                                "store_name": link["store_name"],
+                                "url": url,
+                                "price": link.get("price"),
+                                "currency": link.get("currency")
+                            }).execute()
                             links_added += 1
                         except Exception as e:
                             print(f"      ⚠️ Link failed: {e}")
@@ -783,7 +789,7 @@ def update_product(product_id: str, req: dict):
                 try:
                     supabase.table("buy_links").insert({
                         "product_id": product_id,
-                        "store": store_name,  # ✅ Database column is "store"
+                        "store_name": store_name,
                         "url": url,
                         "price": link.get("price"),
                         "currency": link.get("currency")

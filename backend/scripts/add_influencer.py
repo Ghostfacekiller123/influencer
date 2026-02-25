@@ -115,6 +115,20 @@ def scrape_and_process(username: str, platform: str = "instagram", limit: int = 
         influencer_name = first_video.get("ownerFullName") or first_video.get("ownerUsername") or username
         influencer_id = first_video.get("ownerUserId")
         profile_pic = first_video.get("ownerProfilePicUrl") or ""
+        
+        # If profile pic not in video data, use dedicated profile scraper
+        if not profile_pic:
+            try:
+                print("📸 Fetching profile pic via profile scraper...")
+                profile_run = apify.actor("apify/instagram-profile-scraper").call(
+                    run_input={"usernames": [username]}
+                )
+                profile_items = list(apify.dataset(profile_run["defaultDatasetId"]).iterate_items())
+                if profile_items:
+                    profile_pic = profile_items[0].get("profilePicUrl") or profile_items[0].get("profilePicUrlHD") or ""
+                    print(f"📸 Profile pic from scraper: {profile_pic[:60] if profile_pic else 'None'}...")
+            except Exception as e:
+                print(f"⚠️  Profile scraper failed: {e}")
     else:
         author = first_video.get("authorMeta", {})
         influencer_name = author.get("nickName") or author.get("name") or username
@@ -270,6 +284,11 @@ If no products found, return: []
     uploaded = 0
     for product in all_products:
         try:
+            # Skip products without a valid video URL
+            if not product.get("video_url"):
+                print(f"  ⚠️  Skipping: {product['product_name']} - no video URL")
+                continue
+            
             # Check if product already exists
             existing = supabase.table("products").select("id").eq(
                 "product_name", product["product_name"]
@@ -308,28 +327,28 @@ If no products found, return: []
             # Insert buy links
             for link in real_links:
                 try:
-                  supabase.table("buy_links").insert({
-    "product_id": product_id,
-    "store": link["store_name"],  # ✅ CORRECT - database column is "store"
-    "url": link["url"],
-    "price": link.get("price"),
-    "currency": link.get("currency")
-}).execute()
+                    supabase.table("buy_links").insert({
+                        "product_id": product_id,
+                        "store_name": link["store_name"],
+                        "url": link["url"],
+                        "price": link.get("price"),
+                        "currency": link.get("currency")
+                    }).execute()
                 except Exception as e:
                     print(f"      ❌ {link['store_name']}: {e}")
             
-            # ✅ NEW - Add @mentions as buy links
+            # Add @mentions as buy links
             mentions = product.get("mentions", [])
             for mention in mentions:
                 try:
                     instagram_url = f"https://www.instagram.com/{mention}/"
                     supabase.table("buy_links").insert({
-    "product_id": product_id,
-    "store": f"@{mention}",  # ✅ CORRECT
-    "url": instagram_url,
-    "price": None,
-    "currency": None
-}).execute()
+                        "product_id": product_id,
+                        "store_name": f"@{mention}",
+                        "url": instagram_url,
+                        "price": None,
+                        "currency": None
+                    }).execute()
                     print(f"      📍 Added mention: @{mention}")
                 except Exception as e:
                     print(f"      ❌ @{mention}: {e}")
