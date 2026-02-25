@@ -4,6 +4,7 @@ FastAPI backend for the Influencer Product Search Platform.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -675,10 +676,27 @@ def save_verified_products(req: SaveProductsRequest):
                 
                 result = supabase.table("products").insert(product_data).execute()
                 product_id = result.data[0]["id"]
-                
-                buy_links = product.get("buy_links", [])
+
                 links_added = 0
-                
+
+                # Parse @mentions from caption and create Instagram links FIRST
+                caption = product.get("quote", "")
+                mentions = re.findall(r'@(\w+)', caption)
+                for mention in mentions:
+                    try:
+                        supabase.table("buy_links").insert({
+                            "product_id": product_id,
+                            "store_name": f"@{mention}",
+                            "url": f"https://instagram.com/{mention}",
+                            "price": None,
+                            "currency": None
+                        }).execute()
+                        links_added += 1
+                    except Exception as e:
+                        print(f"      ⚠️ Mention link failed: {e}")
+
+                buy_links = product.get("buy_links", [])
+
                 # Auto-generate if empty
                 if not buy_links or all(not link.get("url", "").strip() for link in buy_links):
                     from urllib.parse import quote_plus
